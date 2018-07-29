@@ -1,0 +1,529 @@
+# **Marvel vs DC - Exploratory Data Analysis**
+*Adrian R Angkawijaya*
+
+*27 July 2018*
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message=FALSE, warning = FALSE)
+```
+### **Introduction**
+
+This is an Exploratory Data Analysis of the comparison between the characters in the Marvel and DC Universes. The analysis includes the distribution of the characters in terms of variables such as Race and Gender as well as looking at the top strongest characters for each of the two universes.
+
+The dataset was originally obtained from the [Superhero Database website](https://www.superherodb.com) and scraped to csv files. 
+
+### **Data Preparation**
+
+**Here load the three datasets:**
+```{r}
+setwd("/Users/adrianromano/Downloads/")
+info <- read.csv("/Users/adrianromano/Downloads/superhero-set/heroes_information.csv", na.strings = c("-", "-99"))
+stats <- read.csv("/Users/adrianromano/Downloads/superhero-set/characters_stats.csv", na.strings = "")
+powers <- read.csv("/Users/adrianromano/Downloads/superhero-set/super_hero_powers.csv")
+```
+
+**Import the necessary packages:**
+```{r}
+library(reshape2)
+library(plyr)
+library(dplyr)
+```
+
+**Note:** Since we are only interested in looking at Marvel and DC Comics data, we subset the dataset to only these two publishers and also remove duplicates of the character names so that each name is unique.
+
+**Subset the data only for Marvel and DC:**
+```{r}
+colnames(info)[colnames(info) == "name"] <- "Name"
+marvel_dc_info <- info[(info$Publisher == "Marvel Comics" | info$Publisher == "DC Comics"), ]
+```
+
+**Remove Name duplicates and select the columns that we are interested for the analysis:**
+```{r}
+marvel_dc_info <- marvel_dc_info[!duplicated(marvel_dc_info$Name), ]
+marvel_dc_info <- marvel_dc_info %>%
+    select(Name, Gender, Race, Publisher) 
+```
+
+Let's combine the three datasets into one to see all their relationships together. 
+
+**Note:** Inner join is used to keep only the intersect character names. The rest of the data are dropped.
+
+**Join the first two datasets:**
+```{r}
+marvel_dc_stats_info <- join(marvel_dc_info, stats, by = "Name", type = "inner")
+```
+
+**Then join them with the third dataset:**
+```{r}
+colnames(powers)[colnames(powers) == "hero_names"] <- "Name"
+full_marvel_dc <- join(marvel_dc_stats_info, powers, by = "Name", type = "inner")
+```
+
+**Check the first few rows of the combined dataset:**
+```{r, results = "hide"}
+head(full_marvel_dc) # Result contains 186 columns so it is hidden to safe space
+```
+
+Notice that the data contains 186 columns with a lot of super power column names. They contain values of True and False that represent whether the character has that respective super power (True) or not (False).
+
+We can transform them into a single column that contains all these super power column names to simplify the data.
+
+**We do so by using the melt function as follows:**
+```{r}
+marvel_dc <- melt(full_marvel_dc, id = c("Name", "Gender", "Race", "Publisher", "Alignment", "Intelligence", 
+                                         "Strength", "Speed", "Durability", "Power", "Combat", "Total"))
+colnames(marvel_dc)[colnames(marvel_dc) == "variable"] <- "Super.Power"
+
+marvel_dc <- marvel_dc %>%
+    filter(value == "True") %>%
+    select(-value) 
+```
+
+**Check the first few rows of the dataset again:**
+```{r}
+head(marvel_dc)
+```
+
+The data looks well structured and perfect for graphs !
+
+Before moving on to the analysis, lets check if there are any missing values in the data. 
+
+**Note:** In the data, the missing values are represented by blank values, "-" or "-99".
+
+**Check for missing values:**
+```{r}
+colSums(is.na(marvel_dc))
+```
+The Gender, Race and Alignment columns have some missing values. Since the project does not involves any prediction model, we do not need to fill in the missing values and just filter them out for the analysis.
+
+### **Exploratory Data Analysis**
+
+**First, import the necessary packages:**
+```{r}
+library(ggplot2)
+library(gridExtra)
+library(wesanderson)
+library(pander)
+```
+
+**Convert the categorical columns to factors for visualization:**
+```{r}
+marvel_dc$Name <- as.factor(marvel_dc$Name)
+marvel_dc$Gender <- as.factor(marvel_dc$Gender)
+marvel_dc$Race <- as.factor(marvel_dc$Race)
+marvel_dc$Publisher <- as.factor(marvel_dc$Publisher)
+marvel_dc$Alignment <- as.factor(marvel_dc$Alignment)
+marvel_dc$Super.Power <- as.factor(marvel_dc$Super.Power)
+```
+
+**How many data observations are in each universe?**
+```{r}
+ggplot(marvel_dc, aes(x = Publisher, fill = Publisher)) + 
+    geom_bar(stat = "count", aes(fill = Publisher), col = "black", alpha = 0.8) +
+    labs(x = "", y = "", title = "Distribution of Marvel vs DC") +
+    geom_label(stat = "count", aes(label = ..count..)) +
+    guides(fill = FALSE) +
+    theme_classic()
+```
+
+**Summary:**
+
+* There are 2352 observations of DC Comics data.
+* There are 1386 observations of Marvel Comics data.
+
+**How many Males and Females are in each universe?**
+```{r}
+marvel_dc_gender <- marvel_dc %>%
+    filter(!is.na(Gender)) %>%
+    group_by(Gender) %>%
+    dplyr::count(Publisher) %>%
+    select(Gender, Publisher, Count = n)
+
+ggplot(marvel_dc_gender, aes(x = Gender, y = Count)) +
+    geom_bar(stat = "identity", aes(fill = Gender), col = "black", alpha = 0.8) +
+    labs(x = "", y = "", title = "Marvel vs DC Gender Comparison") +
+    facet_wrap(~Publisher) +
+    theme_bw()
+```
+
+**Summary:**
+
+* About **21.6%** (300 out of 1386) characters are Female in the DC Universe.
+* About **24.9%** (573 out of 2305) characters are Female in the Marvel Universe.
+* About **78.4%** (1086 out of 1386) characters are Male in the DC Universe.
+* About **75.1%** (1732 out of 2305) characters are Male in the Marvel Universe.
+
+**How about the race difference in the two universes?**
+```{r}
+## Marvel
+marvel_race <- marvel_dc %>%
+        filter(!is.na(Race)) %>%
+        filter(Publisher == "Marvel Comics") %>%
+        group_by(Race) %>%
+        dplyr::count(Race) %>%
+        select(Race, Count = n) %>%
+        arrange(-Count)
+
+marvel_race <- ggplot(marvel_race[1:10, ], aes(x = reorder(Race, Count), y = Count)) + 
+    geom_bar(stat = "identity", aes(fill = Race), col = "black", alpha = 0.8) +
+    labs(x = "", y = "", title = "Top 10 Marvel Races") +
+    coord_flip() +
+    guides(fill = FALSE, alpha = FALSE) +
+    theme_bw()
+
+## DC
+dc_race <- marvel_dc %>%
+    filter(!is.na(Race)) %>%
+    filter(Publisher == "DC Comics") %>%
+    group_by(Race) %>%
+    dplyr::count(Race) %>%
+    select(Race, Count = n) %>%
+    arrange(-Count)
+
+dc_race <- ggplot(dc_race[1:10, ], aes(x = reorder(Race, Count), y = Count)) + 
+    geom_bar(stat = "identity", aes(fill = Race), col = "black", alpha = 0.8) +
+    labs(x = "", y = "", title = "Top 10 DC Races") +
+    coord_flip() +
+    guides(fill = FALSE, alpha = FALSE) +
+    theme_bw()
+grid.arrange(marvel_race, dc_race, ncol = 2)
+```
+
+**Summary:**
+
+* Humans and Mutants are the top highest race populations in the Marvel Universe.
+* Humans and Kyrptonians are the top highest race populations in the DC Universe.
+
+**How many heroes and villains are in each universe?**
+```{r}
+marvel_dc_alignment <- marvel_dc %>%
+    filter(!is.na(Alignment)) %>%
+    group_by(Alignment) %>%
+    dplyr::count(Publisher) %>%
+    select(Alignment, Publisher, Count = n)
+
+ggplot(marvel_dc_alignment, aes(x = Alignment, y = Count)) +
+    geom_bar(stat = "identity", aes(fill = Alignment), col = "black", alpha = 0.8) +
+    labs(x = "", y = "Number of Characters", title = "Heroes vs Villains Comparison") +
+    guides(fill = FALSE) +
+    facet_wrap(~Publisher) +
+    theme_bw()
+```
+
+**Summary:**
+
+* About **64.2%** (889 out of 1385) characters are Heroes in the DC Universe.
+* About **67.6%** (1580 out of 2336) characters are Heroes in the Marvel Universe.
+* About **31.8%** (441 out of 1385) characters are Villains in the DC Universe.
+* About **28.9%** (675 out of 2336) characters are Villains in the Marvel Universe.
+* About **4%** (55 out of 1385) characters are Neutral in the DC Universe.
+* About **3.5%** (81 out of 2336) characters are Neutral in the Marvel Universe.
+
+Next, we look at the comparison of stats between the two universes. 
+
+**Note:** The stats consists of Intelligence, Strength, Speed, Durability, Power and Combat Skills ranging from 0 - 100.
+
+**Here is the boxplot comparison of all the stats for the two universes:**
+```{r}
+## Intelligence
+marvel_dc_intelligence <- ggplot(marvel_dc, aes(x = Publisher, y = Intelligence, fill = Publisher)) + 
+    geom_boxplot(alpha = 0.5) +
+    labs(x = "", title = "Boxplot Comparison of Intelligence") +
+    scale_fill_brewer(palette="Spectral") + 
+    guides(fill = FALSE) +
+    theme_minimal()
+
+## Strength
+marvel_dc_strength <- ggplot(marvel_dc, aes(x = Publisher, y = Strength, fill = Publisher)) + 
+    geom_boxplot(alpha = 0.5) +
+    labs(x = "", title = "Boxplot Comparison of Strength") +
+    scale_fill_manual(values=wes_palette(n=2, name= "Royal1")) + 
+    guides(fill = FALSE) +
+    theme_minimal()
+
+## Speed
+marvel_dc_speed <- ggplot(marvel_dc, aes(x = Publisher, y = Speed, fill = Publisher)) + 
+    geom_boxplot(alpha = 0.5) +
+    labs(x = "", title = "Boxplot Comparison of Speed") +
+    scale_fill_manual(values=wes_palette(n=2, name= "Moonrise3")) + 
+    guides(fill = FALSE) +
+    theme_minimal()
+
+## Durability
+marvel_dc_durability <- ggplot(marvel_dc, aes(x = Publisher, y = Durability, fill = Publisher)) + 
+    geom_boxplot(alpha = 0.5) +
+    labs(x = "", title = "Boxplot Comparison of Durability") +
+    scale_fill_brewer(palette="blues") + 
+    guides(fill = FALSE) +
+    theme_minimal()
+
+## Power
+marvel_dc_power <- ggplot(marvel_dc, aes(x = Publisher, y = Power, fill = Publisher)) + 
+    geom_boxplot(alpha = 0.5) +
+    labs(x = "", title = "Boxplot Comparison of Power") +
+    scale_fill_brewer(palette="Dark2") + 
+    guides(fill = FALSE) +
+    theme_minimal() 
+
+## Combat
+marvel_dc_combat <- ggplot(marvel_dc, aes(x = Publisher, y = Combat, fill = Publisher)) + 
+    geom_boxplot(alpha = 0.5) +
+    labs(x = "", title = "Boxplot Comparison of Combat Skills") +
+    scale_fill_manual(values=wes_palette(n=2, name= "Rushmore")) + 
+    guides(fill = FALSE) +
+    theme_minimal() 
+
+grid.arrange(marvel_dc_intelligence, marvel_dc_strength, marvel_dc_speed, 
+             marvel_dc_durability, marvel_dc_power, marvel_dc_combat,  ncol = 2)
+```
+
+**Summary:**
+
+* The median and range for both universes are very similar and close.
+* Median wise, the DC characters wins in the battle of Intelligence, Speed, Durability and Power.
+* Marvel characters wins only for the stat of Combat Skills.
+* The median of Strength looks the same for the two universes.
+
+**Which characters have the highest intelligence in each universe?**
+```{r}
+## Marvel
+marvel_intel <- marvel_dc %>%
+    filter(Publisher == "Marvel Comics") %>%
+    group_by(Name) %>%
+    distinct(Intelligence) %>%
+    select(Name, Intelligence) %>%
+    arrange(-Intelligence)
+
+ggplot(marvel_intel[1:15, ], aes(x = reorder(Name, Intelligence), y = Intelligence)) + 
+    geom_bar(stat = "identity", aes(fill = Name), col = "black", alpha = 0.8) +
+    ylim(0, 110) +
+    labs(x = "", y = "", title = "Top 15 Marvel Characters with the Highest Intelligence") +
+    coord_flip() +
+    theme_bw()
+
+## DC
+dc_intel <- marvel_dc %>%
+    filter(Publisher == "DC Comics") %>%
+    group_by(Name) %>%
+    distinct(Intelligence) %>%
+    select(Name, Intelligence) %>%
+    arrange(-Intelligence)
+
+ggplot(dc_intel[1:15, ], aes(x = reorder(Name, Intelligence), y = Intelligence)) + 
+    geom_bar(stat = "identity", aes(fill = Name), col = "black", alpha = 0.8) +
+    ylim(0, 120) +
+    labs(x = "", y = "", title = "Top 15 DC Characters with the Highest Intelligence") +
+    coord_flip() +
+    theme_bw()
+```
+
+**Summary:**
+
+* Some characters in the Marvel Universe with the highest Intelligence includes the Vision, Professor X and Iron Man (Tony Stark).
+* Some characters in the DC Universe with the highest Intelligence includes Mister Mxyzptlk, Superman and Joker.
+
+**Which characters have the highest strength in each universe?**
+```{r}
+## Marvel
+marvel_str <- marvel_dc %>%
+    filter(Publisher == "Marvel Comics") %>%
+    group_by(Name) %>%
+    distinct(Strength) %>%
+    select(Name, Strength) %>%
+    arrange(-Strength)
+
+ggplot(marvel_str[1:15, ], aes(x = reorder(Name, Strength), y = Strength)) + 
+    geom_bar(stat = "identity", aes(fill = Name), col = "black", alpha = 0.8) +
+    ylim(0, 110) +
+    labs(x = "", y = "", title = "Top 15 Marvel Characters with the Highest Strength") +
+    coord_flip() +
+    theme_bw()
+
+## DC
+dc_str <- marvel_dc %>%
+    filter(Publisher == "DC Comics") %>%
+    group_by(Name) %>%
+    distinct(Strength) %>%
+    select(Name, Strength) %>%
+    arrange(-Strength)
+
+ggplot(dc_str[1:15, ], aes(x = reorder(Name, Strength), y = Strength)) + 
+    geom_bar(stat = "identity", aes(fill = Name), col = "black", alpha = 0.8) +
+    ylim(0, 110) +
+    labs(x = "", y = "", title = "Top 15 DC Characters with the Highest Strength") +
+    coord_flip() +
+    theme_bw()
+```
+
+**Summary:**
+
+* Some characters in the Marvel Universe with the highest Strength includes Thor, Thanos and Hulk.
+* Some characters in the DC Universe with the highest Strength includes Wonder Woman, Superman and Darkseid.
+
+**Which characters have the highest speed in each universe?**
+```{r}
+## Marvel
+marvel_spd <- marvel_dc %>%
+    filter(Publisher == "Marvel Comics") %>%
+    group_by(Name) %>%
+    distinct(Speed) %>%
+    select(Name, Speed) %>%
+    arrange(-Speed)
+
+ggplot(marvel_spd[1:15, ], aes(x = reorder(Name, Speed), y = Speed)) + 
+    geom_bar(stat = "identity", aes(fill = Name), col = "black", alpha = 0.8) +
+    ylim(0, 110) +
+    labs(x = "", y = "", title = "Top 15 Marvel Characters with the Highest Speed") +
+    coord_flip() +
+    theme_bw()
+
+## DC
+dc_spd <- marvel_dc %>%
+    filter(Publisher == "DC Comics") %>%
+    group_by(Name) %>%
+    distinct(Speed) %>%
+    select(Name, Speed) %>%
+    arrange(-Speed)
+
+ggplot(dc_spd[1:15, ], aes(x = reorder(Name, Speed), y = Speed)) + 
+    geom_bar(stat = "identity", aes(fill = Name), col = "black", alpha = 0.8) +
+    ylim(0, 110) +
+    labs(x = "", y = "", title = "Top 15 DC Characters with the Highest Speed") +
+    coord_flip() +
+    theme_bw()
+```
+
+**Summary:**
+
+* Some characters in the Marvel Universe with the highest Speed includes Stardust, Quicksilver and Nova.
+* Some characters in the DC Universe with the highest Speed includes Zoom, Superman (this guy is really unfair...) and the Flash.
+
+Now that we have looked at each stats, lets now see the total stats altogether to see which characters are the strongest in each universe. 
+
+**Note:** The analysis of the "strongest" depends on all the combined stats mentioned above and not just based on Strength. For example, if Hulk has 100 Strength but 30 Intelligence, he will not make it to the top strongest (Sad..he's one of my favourites).
+
+**Lets first look at the boxplot comparison of the overall stats:**
+```{r}
+ggplot(marvel_dc, aes(x = Publisher, y = Total, fill = Publisher)) + 
+    geom_boxplot() +
+    labs(x = "", title = "Boxplot Comparison of Overall Stats") +
+    scale_fill_brewer(palette="Dark2") + 
+    theme_minimal() 
+```
+
+* The median for the overall stats of DC Characters is slightly more than the Marvel Characters but they are very close.
+
+**Which characters are the strongest in each universe?**
+```{r}
+## Marvel
+marvel_total <- marvel_dc %>%
+    filter(Publisher == "Marvel Comics") %>%
+    group_by(Name) %>%
+    distinct(Total) %>%
+    select(Name, Total) %>%
+    arrange(-Total)
+
+ggplot(marvel_total[1:20, ], aes(x = reorder(Name, Total), y = Total)) + 
+    geom_bar(stat = "identity", aes(fill = Name), col = "black", alpha = 0.8) +
+    labs(x = "", y = "", title = "Top 20 Strongest Marvel Characters") +
+    coord_flip() +
+    guides(fill = FALSE, alpha = FALSE) +
+    theme_bw()
+
+## DC
+dc_total <- marvel_dc %>%
+    filter(Publisher == "DC Comics") %>%
+    group_by(Name) %>%
+    distinct(Total) %>%
+    select(Name, Total) %>%
+    arrange(-Total)
+
+ggplot(dc_total[1:20, ], aes(x = reorder(Name, Total), y = Total)) + 
+    geom_bar(stat = "identity", aes(fill = Name), col = "black", alpha = 0.8) +
+    labs(x = "", y = "", title = "Top 20 Strongest DC Characters") +
+    coord_flip() +
+    guides(fill = FALSE, alpha = FALSE) +
+    theme_bw()
+```
+
+**Summary:**
+
+* The Strongest Characters in the Marvel Universe includes Stardust, Thor and Galactus.
+* The Strongest Characters in the DC Universe includes Martian Manhunter, Superman and General Zod.
+
+**Now lets look at the super powers comparison:**
+```{r}
+## Marvel
+marvel_super <- marvel_dc %>%
+    filter(Publisher == "Marvel Comics") %>%
+    group_by(Super.Power) %>%
+    dplyr::count(Super.Power) %>%
+    select(Super.Power, Count = n) %>%
+    arrange(-Count)
+
+ggplot(marvel_super[1:15, ], aes(x = reorder(Super.Power, Count), y = Count)) + 
+    geom_bar(stat = "identity", aes(fill = Super.Power), col = "black", alpha = 0.8) +
+    labs(x = "", y = "", title = "Top 15 Marvel Super Powers") +
+    coord_flip() +
+    guides(fill = FALSE, alpha = FALSE) +
+    theme_bw()
+
+## DC
+dc_super <- marvel_dc %>%
+    filter(Publisher == "DC Comics") %>%
+    group_by(Super.Power) %>%
+    dplyr::count(Super.Power) %>%
+    select(Super.Power, Count = n) %>%
+    arrange(-Count)
+
+ggplot(dc_super[1:15, ], aes(x = reorder(Super.Power, Count), y = Count)) + 
+    geom_bar(stat = "identity", aes(fill = Super.Power), col = "black", alpha = 0.8) +
+    labs(x = "", y = "", title = "Top 15 DC Super Powers") +
+    coord_flip() +
+    guides(fill = FALSE, alpha = FALSE) +
+    theme_bw()
+```
+
+**Summary:**
+
+* Super Strength, Stamina and Super Speed are the top super powers in the Marvel Universe.
+* Super Strength, Stamina and Flight are the top super powers in the DC Universe.
+
+**Which characters have the highest number of super powers in each universe?**
+```{r}
+## Marvel
+marvel_power <- marvel_dc %>%
+    filter(Publisher == "Marvel Comics") %>%
+    group_by(Name) %>%
+    dplyr::count(Name) %>%
+    select(Name, Count = n) %>%
+    arrange(-Count)
+    
+ggplot(marvel_power[1:20, ], aes(x = reorder(Name, Count), y = Count)) + 
+    geom_bar(stat = "identity", aes(fill = Name), col = "black", alpha = 0.8) +
+    labs(x = "", y = "", title = "Top 20 Marvel Characters with the Highest Number of Super Powers") +
+    coord_flip() +
+    guides(fill = FALSE, alpha = FALSE) +
+    theme_bw()
+
+## DC
+dc_power <- marvel_dc %>%
+    filter(Publisher == "DC Comics") %>%
+    group_by(Name) %>%
+    dplyr::count(Name) %>%
+    select(Name, Count = n) %>%
+    arrange(-Count)
+
+ggplot(dc_power[1:20, ], aes(x = reorder(Name, Count), y = Count)) + 
+    geom_bar(stat = "identity", aes(fill = Name), col = "black", alpha = 0.8) +
+    labs(x = "", y = "", title = "Top 20 DC Characters with the Highest Number of Super Powers") +
+    coord_flip() +
+    guides(fill = FALSE, alpha = FALSE) +
+    theme_bw()
+```
+
+**Summary:**
+
+* Nova, Captain Marvel and Galactus have the most number of super powers in the Marvel Universe.
+* Spectre, Amazo and Martian Manhunter have the most number of super powers in the DC Universe.
+
